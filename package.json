@@ -129,12 +129,13 @@
     "name": "垃圾文件清理",
     "description": "自动清理监控目录内的垃圾文件",
     "labels": "清理,垃圾文件,监控",
-    "version": "1.0",
+    "version": "1.1",
     "icon": "https://raw.githubusercontent.com/madrays/MoviePilot-Plugins/main/icons/clean1.png",
     "author": "madrays",
     "level": 1,
     "v2": true,
     "history": {
+      "v1.1": "优化性能及体验",
       "v1.0": "首次发布"
     }
   }

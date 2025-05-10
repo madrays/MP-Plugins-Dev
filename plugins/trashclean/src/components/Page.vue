@@ -332,11 +332,28 @@
             </v-card-text>
           </v-card>
           
-          <!-- 目录详细统计 -->
+          <!-- 目录统计显示部分 -->
           <v-card v-if="pathStats.length" flat class="rounded mb-3 border config-card">
-            <v-card-title class="text-caption d-flex align-center px-3 py-2 bg-primary-lighten-5">
-              <v-icon icon="mdi-chart-bar" class="mr-2" color="primary" size="small" />
-              <span>目录统计</span>
+            <v-card-title class="text-caption d-flex align-center justify-space-between px-3 py-2 bg-primary-lighten-5">
+              <div class="d-flex align-center">
+                <v-icon icon="mdi-chart-bar" class="mr-2" color="primary" size="small" />
+                <span>目录统计</span>
+                <v-chip v-if="lastStatsUpdate" size="x-small" color="info" variant="flat" class="ml-1">
+                  {{ lastStatsUpdate }}
+                </v-chip>
+              </div>
+              <v-btn 
+                size="small" 
+                color="primary" 
+                variant="tonal"
+                :loading="updatingStats"
+                :disabled="updatingStats" 
+                @click="updateStats"
+                class="stats-update-btn"
+              >
+                <v-icon icon="mdi-refresh" size="small" class="mr-1" />
+                <span>更新统计</span>
+              </v-btn>
             </v-card-title>
             <v-card-text class="pa-0">
               <v-table density="compact" class="text-body-2">
@@ -395,12 +412,23 @@
                 </v-card>
                 
                 <div class="my-2 px-3">
-                  <div class="text-subtitle-2 font-weight-medium">已删除的目录：</div>
+                  <div class="text-subtitle-2 font-weight-medium d-flex justify-space-between align-center">
+                    <span>已删除的目录：</span>
+                    <v-btn 
+                      v-if="cleanResult.removed_dirs.length > 3" 
+                      size="x-small" 
+                      color="primary"
+                      variant="text"
+                      @click="showCleanResultDialog = true"
+                    >
+                      查看全部
+                    </v-btn>
+                  </div>
                 </div>
                 
                 <v-list density="compact" class="pa-0">
                   <v-list-item
-                    v-for="(dir, index) in cleanResult.removed_dirs"
+                    v-for="(dir, index) in cleanResult.removed_dirs.slice(0, 3)"
                     :key="index"
                     class="clean-history-item"
                   >
@@ -432,6 +460,19 @@
                         </v-chip>
                       </div>
                     </template>
+                  </v-list-item>
+                  
+                  <v-list-item v-if="cleanResult.removed_dirs.length > 3" class="text-center py-1">
+                    <v-btn 
+                      size="small" 
+                      color="primary"
+                      variant="text"
+                      @click="showCleanResultDialog = true"
+                      class="mx-auto"
+                    >
+                      <v-icon size="small" class="mr-1">mdi-dots-horizontal</v-icon>
+                      查看全部 {{ cleanResult.removed_dirs.length }} 个目录
+                    </v-btn>
                   </v-list-item>
                 </v-list>
               </div>
@@ -518,7 +559,7 @@
           color="success" 
           @click="triggerClean" 
           :loading="actionLoading" 
-          :disabled="actionLoading" 
+          :disabled="actionLoading || cleanProgress.running" 
           prepend-icon="mdi-broom" 
           variant="text" 
           size="small"
@@ -649,11 +690,141 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- 目录统计更新进度对话框 -->
+    <v-dialog v-model="showUpdateStatsDialog" persistent max-width="400px">
+      <v-card>
+        <v-card-title class="text-subtitle-1 d-flex align-center px-4 py-3" :class="updatingStats ? 'bg-primary-lighten-5' : 'bg-success-lighten-5'">
+          <v-icon :icon="updatingStats ? 'mdi-refresh' : 'mdi-check-circle'" class="mr-2" :color="updatingStats ? 'primary' : 'success'" />
+          <span>{{ updatingStats ? '正在更新目录统计' : '更新完成' }}</span>
+        </v-card-title>
+        <v-card-text class="pa-4">
+          <div class="text-center mb-3">
+            <span class="text-subtitle-2">{{ updateStatsMessage || (updatingStats ? '正在更新目录统计数据，请稍候...' : '目录统计数据更新完成！') }}</span>
+            <div class="text-h4 font-weight-bold mt-2" :class="updatingStats ? 'primary--text' : 'success--text'">
+              {{ updateStatsProgress }}%
+            </div>
+          </div>
+          <v-progress-linear
+            v-model="updateStatsProgress"
+            :color="updatingStats ? 'primary' : 'success'"
+            height="10"
+            rounded
+            striped
+          ></v-progress-linear>
+          <div class="text-caption text-center mt-3 text-grey" v-if="updatingStats">
+            <v-icon icon="mdi-information-outline" size="x-small" class="mr-1" />
+            该过程可能需要较长时间，您可以关闭此窗口，统计将在后台继续进行
+          </div>
+        </v-card-text>
+        <v-card-actions class="px-4 py-3">
+          <v-spacer></v-spacer>
+          <v-btn 
+            :color="updatingStats ? 'primary' : 'success'" 
+            variant="text" 
+            @click="showUpdateStatsDialog = false"
+            :disabled="updatingStats && updateStatsProgress < 5"
+          >
+            {{ updatingStats ? '关闭窗口（后台继续）' : '关闭' }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- 清理进度对话框 -->
+    <v-dialog v-model="showCleanProgressDialog" persistent max-width="600px">
+      <v-card>
+        <v-card-title class="text-subtitle-1 d-flex align-center px-4 py-3" :class="getProgressStatusClass">
+          <v-icon :icon="getProgressStatusIcon" class="mr-2" :color="getProgressStatusColor" />
+          <span>{{ getProgressStatusText }}</span>
+        </v-card-title>
+        <v-card-text class="pa-4">
+          <div class="progress-content">
+            <!-- 进度显示 -->
+            <div class="mb-3">
+              <div class="d-flex justify-space-between align-center mb-1">
+                <span class="text-subtitle-2">
+                  {{ cleanProgress.message }}
+                </span>
+                <span class="text-h6 font-weight-bold" :class="getProgressStatusColor + '--text'">
+                  {{ cleanProgress.percent.toFixed(0) }}%
+                </span>
+              </div>
+              <v-progress-linear
+                v-model="cleanProgress.percent"
+                :color="getProgressStatusColor"
+                height="12"
+                rounded
+                striped
+              ></v-progress-linear>
+            </div>
+            
+            <!-- 详细信息 -->
+            <div class="progress-details pa-3 rounded-lg" :class="getProgressInfoBgClass">
+              <div class="d-flex flex-wrap">
+                <div class="progress-stat-item">
+                  <v-icon icon="mdi-clock-time-five" size="small" class="mr-1"></v-icon>
+                  <span>开始时间: {{ formatDate(new Date(cleanProgress.start_time || Date.now())) }}</span>
+                </div>
+                <div class="progress-stat-item">
+                  <v-icon icon="mdi-folder-multiple" size="small" class="mr-1"></v-icon>
+                  <span>总目录数: {{ cleanProgress.total_dirs }}</span>
+                </div>
+                <div class="progress-stat-item">
+                  <v-icon icon="mdi-folder-check" size="small" class="mr-1"></v-icon>
+                  <span>已处理: {{ cleanProgress.processed_dirs }}</span>
+                </div>
+                <div class="progress-stat-item">
+                  <v-icon icon="mdi-delete" size="small" class="mr-1"></v-icon>
+                  <span>已清理: {{ cleanProgress.removed_dirs.length }}</span>
+                </div>
+              </div>
+              
+              <div v-if="cleanProgress.current_dir" class="mt-2">
+                <v-icon icon="mdi-folder-open" size="small" class="mr-1"></v-icon>
+                <span class="text-caption">当前处理: {{ cleanProgress.current_dir }}</span>
+              </div>
+            </div>
+            
+            <!-- 已删除目录列表 -->
+            <div v-if="cleanProgress.removed_dirs.length > 0" class="mt-3">
+              <div class="text-subtitle-2 mb-2">已删除的目录:</div>
+              <div class="removed-dirs-container bg-grey-lighten-5 rounded pa-1">
+                <div 
+                  v-for="(dir, index) in cleanProgress.removed_dirs.slice(0, 5)" 
+                  :key="index"
+                  class="removed-dir-item pa-2"
+                >
+                  <div class="d-flex align-center">
+                    <v-icon :icon="getCleanTypeIcon(dir.type)" :color="getCleanTypeColor(dir.type)" size="small" class="mr-2"></v-icon>
+                    <span class="text-caption text-truncate">{{ dir.path }}</span>
+                  </div>
+                </div>
+                <div v-if="cleanProgress.removed_dirs.length > 5" class="text-center pa-2">
+                  <span class="text-caption">... 还有 {{ cleanProgress.removed_dirs.length - 5 }} 个目录已删除</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-spacer></v-spacer>
+          <v-btn 
+            color="primary" 
+            variant="text" 
+            @click="showCleanProgressDialog = false"
+            :disabled="cleanProgress.running"
+          >
+            {{ cleanProgress.running ? '清理中...' : '关闭' }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
 <script>
-import { defineComponent, ref, reactive, toRefs, computed, onMounted } from 'vue';
+import { defineComponent, ref, reactive, toRefs, computed, onMounted, onUnmounted } from 'vue';
 
 export default defineComponent({
   name: 'Page',
@@ -704,7 +875,25 @@ export default defineComponent({
       loadingDownloaders: false,
       cleanHistory: [],
       loadingHistory: false,
-      showHistoryDialog: false
+      showHistoryDialog: false,
+      lastStatsUpdate: '',
+      updatingStats: false,
+      showUpdateStatsDialog: false,
+      updateStatsProgress: 0,
+      updateStatsMessage: '',
+      cleanProgress: {
+        running: false,
+        total_dirs: 0,
+        processed_dirs: 0,
+        current_dir: "",
+        removed_dirs: [],
+        start_time: null,
+        status: "idle",
+        message: "",
+        percent: 0
+      },
+      showCleanProgressDialog: false,
+      progressPollTimer: null
     });
     
     // 计算属性：有效的路径统计
@@ -801,6 +990,19 @@ export default defineComponent({
       }
     };
     
+    // 加载最新清理结果
+    const loadLatestCleanResult = async () => {
+      try {
+        const response = await props.api.get('plugin/TrashClean/latest_clean_result');
+        if (response) {
+          state.cleanResult = response;
+          console.log('已加载最新清理结果:', response);
+        }
+      } catch (error) {
+        console.error('加载最新清理结果失败:', error);
+      }
+    };
+    
     // 刷新所有数据
     const refreshData = async () => {
       try {
@@ -811,6 +1013,16 @@ export default defineComponent({
         await loadStatusData();
         await loadPathStats();
         
+        // 获取统计缓存信息
+        try {
+          const statsCache = await props.api.get('plugin/TrashClean/stats_cache');
+          if (statsCache && statsCache.last_update) {
+            state.lastStatsUpdate = statsCache.last_update;
+          }
+        } catch (error) {
+          console.error('获取统计缓存失败:', error);
+        }
+        
         // 如果启用了只在无下载任务时执行，则加载下载器状态
         if (state.statusData.only_when_no_download) {
           await loadDownloaderStatus();
@@ -820,6 +1032,9 @@ export default defineComponent({
         if (state.statusData.dir_history_count > 0) {
           await loadCleanHistory();
         }
+        
+        // 加载最新清理结果
+        await loadLatestCleanResult();
         
         state.actionMessage = '数据刷新成功';
         state.actionMessageType = 'success';
@@ -836,6 +1051,124 @@ export default defineComponent({
       }
     };
     
+    // 手动更新统计数据
+    const updateStats = async () => {
+      try {
+        state.updatingStats = true;
+        state.error = null;
+        state.showUpdateStatsDialog = true; // 显示更新对话框
+        state.updateStatsProgress = 0; // 初始进度
+        state.updateStatsMessage = "准备开始更新统计数据...";
+        
+        // 显示加载消息
+        state.actionMessage = "正在更新目录统计数据，这可能需要一些时间...";
+        state.actionMessageType = "info";
+        
+        // 启动进度轮询
+        const progressTimer = setInterval(async () => {
+          try {
+            const statsCache = await props.api.get('plugin/TrashClean/stats_cache');
+            if (statsCache) {
+              state.updateStatsProgress = statsCache.progress || 0;
+              state.updateStatsMessage = statsCache.message || "更新中...";
+              
+              // 如果更新完成，停止轮询
+              if (statsCache.status === "success" && statsCache.progress >= 100) {
+                clearInterval(progressTimer);
+              }
+            }
+          } catch (err) {
+            console.error('获取统计缓存进度失败:', err);
+          }
+        }, 500);
+        
+        // 执行更新操作
+        const response = await props.api.post('plugin/TrashClean/update_stats');
+        
+        // 停止进度轮询
+        clearInterval(progressTimer);
+        
+        // 获取最终结果
+        const finalStats = await props.api.get('plugin/TrashClean/stats_cache');
+        if (finalStats) {
+          state.updateStatsProgress = finalStats.progress || 100;
+          state.updateStatsMessage = finalStats.message || "更新完成";
+          state.lastStatsUpdate = finalStats.last_update || "";
+        }
+        
+        // 重新加载统计数据
+        await loadPathStats();
+        
+        // 更新完成，但不自动关闭对话框，让用户手动关闭
+        state.updatingStats = false;
+        
+        state.actionMessage = "目录统计数据更新成功";
+        state.actionMessageType = "success";
+        
+        // 3秒后清除成功消息
+        setTimeout(() => {
+          if (state.actionMessage === "目录统计数据更新成功") {
+            state.actionMessage = null;
+          }
+        }, 3000);
+      } catch (error) {
+        state.error = `更新目录统计数据失败: ${error.message || error}`;
+        console.error('更新目录统计数据失败:', error);
+        state.updatingStats = false;
+      }
+    };
+    
+    // 获取清理进度
+    const getCleanProgress = async () => {
+      try {
+        const response = await props.api.get('plugin/TrashClean/clean_progress');
+        if (response) {
+          state.cleanProgress = response;
+          
+          // 如果清理任务正在运行并且进度对话框未显示，则显示它
+          if (response.running && !state.showCleanProgressDialog) {
+            state.showCleanProgressDialog = true;
+          }
+          
+          // 如果清理任务已完成但对话框仍显示，则5秒后自动关闭
+          if (!response.running && response.status !== "idle" && state.showCleanProgressDialog) {
+            setTimeout(() => {
+              if (!state.cleanProgress.running) {
+                state.showCleanProgressDialog = false;
+              }
+            }, 5000);
+          }
+        }
+      } catch (error) {
+        console.error('获取清理进度失败:', error);
+      }
+    };
+    
+    // 启动清理进度轮询
+    const startProgressPolling = () => {
+      if (state.progressPollTimer) {
+        clearInterval(state.progressPollTimer);
+      }
+      
+      // 每秒轮询一次进度
+      state.progressPollTimer = setInterval(async () => {
+        await getCleanProgress();
+        
+        // 如果清理任务已经完成且不是初始状态，则停止轮询
+        if (!state.cleanProgress.running && state.cleanProgress.status !== "idle") {
+          stopProgressPolling();
+        }
+      }, 1000);
+    };
+    
+    // 停止清理进度轮询
+    const stopProgressPolling = () => {
+      if (state.progressPollTimer) {
+        clearInterval(state.progressPollTimer);
+        state.progressPollTimer = null;
+      }
+    };
+    
     // 触发手动清理
     const triggerClean = async () => {
       try {
@@ -843,11 +1176,21 @@ export default defineComponent({
         state.error = null;
         state.actionMessage = null;
         
+        // 开始进度轮询
+        startProgressPolling();
+        
+        // 显示进度对话框
+        state.showCleanProgressDialog = true;
+        
         const response = await props.api.post('plugin/TrashClean/clean');
         
         if (response) {
           state.cleanResult = response;
-          state.showCleanResultDialog = true;
+          
+          // 继续轮询一段时间以显示最终结果
+          setTimeout(() => {
+            getCleanProgress();
+          }, 1000);
           
           // 刷新数据
           await refreshData();
@@ -855,6 +1198,9 @@ export default defineComponent({
       } catch (error) {
         state.error = `手动清理失败: ${error.message || error}`;
         console.error('手动清理失败:', error);
+        
+        // 停止进度轮询
+        stopProgressPolling();
       } finally {
         state.actionLoading = false;
       }
@@ -961,9 +1307,95 @@ export default defineComponent({
       return colors[index % colors.length];
     };
     
+    // 计算属性：进度状态颜色
+    const getProgressStatusColor = computed(() => {
+      switch (state.cleanProgress.status) {
+        case 'success':
+          return 'success';
+        case 'error':
+          return 'error';
+        case 'running':
+          return 'primary';
+        default:
+          return 'grey';
+      }
+    });
+    
+    // 计算属性：进度状态文本
+    const getProgressStatusText = computed(() => {
+      switch (state.cleanProgress.status) {
+        case 'success':
+          return '清理任务完成';
+        case 'error':
+          return '清理任务失败';
+        case 'running':
+          return '清理任务进行中...';
+        default:
+          return '准备开始清理';
+      }
+    });
+    
+    // 计算属性：进度状态图标
+    const getProgressStatusIcon = computed(() => {
+      switch (state.cleanProgress.status) {
+        case 'success':
+          return 'mdi-check-circle';
+        case 'error':
+          return 'mdi-alert-circle';
+        case 'running':
+          return 'mdi-progress-clock';
+        default:
+          return 'mdi-broom';
+      }
+    });
+    
+    // 计算属性：进度状态类
+    const getProgressStatusClass = computed(() => {
+      switch (state.cleanProgress.status) {
+        case 'success':
+          return 'bg-success-lighten-5';
+        case 'error':
+          return 'bg-error-lighten-5';
+        case 'running':
+          return 'bg-primary-lighten-5';
+        default:
+          return 'bg-grey-lighten-5';
+      }
+    });
+    
+    // 计算属性：进度信息背景类
+    const getProgressInfoBgClass = computed(() => {
+      switch (state.cleanProgress.status) {
+        case 'success':
+          return 'bg-success-lighten-5';
+        case 'error':
+          return 'bg-error-lighten-5';
+        case 'running':
+          return 'bg-primary-lighten-5';
+        default:
+          return 'bg-grey-lighten-5';
+      }
+    });
+    
     // 组件挂载时加载数据
     onMounted(() => {
       refreshData();
+      
+      // 加载最新清理结果
+      loadLatestCleanResult();
+      
+      // 检查是否有正在进行的清理任务
+      getCleanProgress().then(() => {
+        if (state.cleanProgress.running) {
+          state.showCleanProgressDialog = true;
+          startProgressPolling();
+        }
+      });
+    });
+    
+    // 组件卸载时清理
+    onUnmounted(() => {
+      stopProgressPolling();
     });
     
     return {
@@ -976,13 +1408,18 @@ export default defineComponent({
       formatSize,
       getCleanTypeColor,
       getCleanTypeText,
-      loadCleanHistory,
       formatDate,
       getCleanTypeIcon,
       formatSpeed,
       formatETA,
-      emit,
-      getHistoryColor
+      getHistoryColor,
+      updateStats,
+      getProgressStatusColor,
+      getProgressStatusText,
+      getProgressStatusIcon,
+      getProgressStatusClass,
+      getProgressInfoBgClass,
+      emit
     };
   }
 });
@@ -1120,5 +1557,42 @@ export default defineComponent({
 .progress-value {
   min-width: 40px;
   text-align: right;
+}
+
+.progress-details {
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.progress-stat-item {
+  display: flex;
+  align-items: center;
+  margin-right: 16px;
+  margin-bottom: 8px;
+  font-size: 0.875rem;
+}
+
+.removed-dirs-container {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.removed-dir-item {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.removed-dir-item:last-child {
+  border-bottom: none;
+}
+
+.stats-update-btn {
+  font-weight: 500;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+}
+
+.stats-update-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
 }
 </style> 
