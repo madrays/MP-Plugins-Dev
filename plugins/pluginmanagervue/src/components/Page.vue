@@ -37,43 +37,77 @@
               </v-btn>
             </template>
             
-            <v-card class="quick-reload-menu" elevation="8">
-              <v-card-text class="pa-2">
-                <div class="text-caption mb-2 text-center">最近重载的插件</div>
-                <div class="quick-reload-grid">
-                  <v-btn
-                    v-for="plugin in lastReloadPlugins.slice(0, 6)"
-                    :key="plugin.id"
-                    size="x-small"
-                    variant="text"
-                    class="quick-reload-item"
-                    @click="reloadPlugin(plugin)"
-                    :loading="reloadingPlugins.has(plugin.id)"
-                  >
-                    <v-avatar size="16" class="mr-1">
-                      <v-img v-if="plugin.icon" :src="plugin.icon">
-                        <template v-slot:placeholder>
-                          <v-icon size="12">mdi-puzzle</v-icon>
-                        </template>
-                      </v-img>
-                      <v-icon v-else size="12">mdi-puzzle</v-icon>
-                    </v-avatar>
-                    {{ plugin.name }}
-                  </v-btn>
+                      <v-card class="quick-reload-menu" elevation="8">
+            <v-card-text class="pa-2">
+              <div class="quick-reload-header">
+                <span class="text-caption">最近重载的插件</span>
+                <v-btn
+                  size="x-small"
+                  variant="text"
+                  @click="toggleAllQuickReload"
+                  class="select-all-btn"
+                >
+                  {{ allQuickReloadSelected ? '取消全选' : '全选' }}
+                </v-btn>
+              </div>
+              
+              <div class="quick-reload-list">
+                <div
+                  v-for="plugin in lastReloadPlugins.slice(0, 6)"
+                  :key="plugin.id"
+                  class="quick-reload-item-wrapper"
+                  :class="{ 'selected': selectedQuickReloadIds.has(plugin.id) }"
+                  @click="toggleQuickReloadSelection(plugin.id)"
+                >
+                  <v-checkbox
+                    :model-value="selectedQuickReloadIds.has(plugin.id)"
+                    @click.stop
+                    @change="toggleQuickReloadSelection(plugin.id)"
+                    hide-details
+                    density="compact"
+                    class="quick-reload-checkbox"
+                  ></v-checkbox>
+                  
+                  <v-avatar size="16" class="mr-2">
+                    <v-img v-if="plugin.icon" :src="getPluginIconPath(plugin.icon)">
+                      <template v-slot:placeholder>
+                        <v-icon size="12">mdi-puzzle</v-icon>
+                      </template>
+                    </v-img>
+                    <v-icon v-else size="12">mdi-puzzle</v-icon>
+                  </v-avatar>
+                  
+                  <span class="quick-reload-name">{{ plugin.name }}</span>
                 </div>
-                <v-divider class="my-2"></v-divider>
+              </div>
+              
+              <v-divider class="my-2"></v-divider>
+              
+              <div class="quick-reload-actions">
+                <v-btn
+                  size="small"
+                  variant="outlined"
+                  @click="reloadSelectedPlugins"
+                  :loading="quickReloadLoading"
+                  :disabled="selectedQuickReloadIds.size === 0"
+                  prepend-icon="mdi-reload"
+                  class="mr-2"
+                >
+                  重载选中 ({{ selectedQuickReloadIds.size }})
+                </v-btn>
+                
                 <v-btn
                   size="small"
                   variant="tonal"
-                  block
                   @click="reloadAllRecent"
                   :loading="quickReloadLoading"
                   prepend-icon="mdi-reload-alert"
                 >
                   全部重载
                 </v-btn>
-              </v-card-text>
-            </v-card>
+              </div>
+            </v-card-text>
+          </v-card>
           </v-menu>
           
           <v-btn
@@ -168,7 +202,7 @@
               <v-avatar size="32" class="plugin-avatar">
                 <v-img
                   v-if="plugin.icon"
-                  :src="plugin.icon"
+                  :src="getPluginIconPath(plugin.icon)"
                   @error="handleImageError"
                 >
                   <template v-slot:placeholder>
@@ -234,6 +268,18 @@
             </v-btn>
             
             <v-btn
+              v-if="plugin.installed && plugin.type !== 'local'"
+              size="small"
+              variant="outlined"
+              @click="showReinstallDialog(plugin)"
+              :loading="reinstallingPlugins.has(plugin.id)"
+              class="control-action reinstall-action"
+              prepend-icon="mdi-download"
+            >
+              重装
+            </v-btn>
+            
+            <v-btn
               size="small"
               color="error"
               variant="text"
@@ -247,18 +293,109 @@
   
           <!-- 加载遮罩 -->
           <div
-            v-if="reloadingPlugins.has(plugin.id)"
+            v-if="reloadingPlugins.has(plugin.id) || reinstallingPlugins.has(plugin.id)"
             class="module-overlay"
           >
             <v-progress-circular indeterminate size="20" width="2"></v-progress-circular>
+            <div class="overlay-text">
+              {{ reloadingPlugins.has(plugin.id) ? '重载中...' : '重装中...' }}
+            </div>
           </div>
         </div>
       </div>
   
+      <!-- 重装确认对话框 -->
+      <v-dialog v-model="reinstallDialog" max-width="500">
+        <v-card class="dialog-card">
+          <v-card-title class="dialog-header">
+            <v-icon color="purple" size="24" class="mr-2">mdi-download-circle</v-icon>
+            <span class="dialog-title">重装插件</span>
+          </v-card-title>
+          
+          <v-card-text class="dialog-content">
+            <div class="target-info">
+              <div class="target-name">{{ selectedPlugin?.name }}</div>
+              <div class="target-meta">
+                当前版本: {{ selectedPlugin?.version }} | 作者: {{ selectedPlugin?.author }}
+              </div>
+            </div>
+            
+            <v-alert
+              type="info"
+              variant="tonal"
+              class="mb-3 info-alert"
+            >
+              重装将从仓库重新下载最新版本的插件，并保留现有配置
+            </v-alert>
+            
+            <div class="repo-info">
+              <div class="info-section">
+                <div class="info-label">
+                  <v-icon size="16" class="mr-1">mdi-source-repository</v-icon>
+                  插件仓库
+                </div>
+                <div 
+                  class="info-value repo-clickable" 
+                  @click="toggleRepoUrlDisplay"
+                  :title="showFullRepoUrl ? '点击显示简洁名称' : '点击显示完整URL'"
+                >
+                  {{ getRepoDisplayName(onlinePluginInfo?.repo_url || selectedPlugin?.repo_url) }}
+                  <v-icon size="12" class="ml-1">{{ showFullRepoUrl ? 'mdi-eye-off' : 'mdi-eye' }}</v-icon>
+                </div>
+              </div>
+              
+              <div class="info-section">
+                <div class="info-label">
+                  <v-icon size="16" class="mr-1">mdi-tag</v-icon>
+                  当前版本
+                </div>
+                <div class="info-value">v{{ selectedPlugin?.version }}</div>
+              </div>
+              
+              <div class="info-section">
+                <div class="info-label">
+                  <v-icon size="16" class="mr-1">mdi-cloud-download</v-icon>
+                  最新版本
+                </div>
+                <div class="info-value">{{ onlinePluginInfo?.plugin_version ? `v${onlinePluginInfo.plugin_version}` : '获取中...' }}</div>
+              </div>
+              
+              <div class="info-section">
+                <div class="info-label">
+                  <v-icon size="16" class="mr-1">mdi-update</v-icon>
+                  更新状态
+                </div>
+                <div class="info-value">
+                  <v-chip
+                    size="small"
+                    :color="getUpdateStatusColor()"
+                    variant="flat"
+                  >
+                    {{ getUpdateStatusText() }}
+                  </v-chip>
+                </div>
+              </div>
+            </div>
+          </v-card-text>
+          
+          <v-card-actions class="dialog-actions">
+            <v-btn @click="reinstallDialog = false" variant="text">取消</v-btn>
+            <v-btn
+              color="purple"
+              @click="confirmReinstall"
+              :loading="actionLoading"
+              variant="outlined"
+            >
+              确认重装
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
+
       <!-- 操作确认对话框 -->
       <v-dialog v-model="actionDialog" max-width="400">
-        <div class="action-dialog">
-          <div class="dialog-header">
+        <v-card class="dialog-card">
+          <v-card-title class="dialog-header">
             <v-icon
               :color="selectedPlugin?.installed ? 'error' : 'warning'"
               size="24"
@@ -269,9 +406,9 @@
             <span class="dialog-title">
               {{ selectedPlugin?.installed ? '卸载模块' : '清理文件' }}
             </span>
-          </div>
+          </v-card-title>
           
-          <div class="dialog-content">
+          <v-card-text class="dialog-content">
             <div class="target-info">
               <div class="target-name">{{ selectedPlugin?.name }}</div>
               <div class="target-meta">
@@ -291,6 +428,18 @@
             </v-alert>
             
             <div class="option-list">
+              <div class="option-header">
+                <span class="option-title">清理选项</span>
+                <v-btn
+                  size="x-small"
+                  variant="text"
+                  @click="toggleAllOptions"
+                  class="select-all-btn"
+                >
+                  {{ allOptionsSelected ? '取消全选' : '全选' }}
+                </v-btn>
+              </div>
+              
               <v-checkbox
                 v-model="clearConfig"
                 label="清除插件配置"
@@ -316,9 +465,9 @@
                 class="option-item"
               ></v-checkbox>
             </div>
-          </div>
+          </v-card-text>
           
-          <div class="dialog-actions">
+          <v-card-actions class="dialog-actions">
             <v-btn @click="actionDialog = false" variant="text">取消</v-btn>
             <v-btn
               :color="selectedPlugin?.installed ? 'error' : 'warning'"
@@ -328,8 +477,8 @@
             >
               确认{{ selectedPlugin?.installed ? '卸载' : '清理' }}
             </v-btn>
-          </div>
-        </div>
+          </v-card-actions>
+        </v-card>
       </v-dialog>
     </div>
   </template>
@@ -356,19 +505,24 @@
   const globalMessage = ref(null);
   const globalMessageType = ref('info');
   const actionDialog = ref(false);
+  const reinstallDialog = ref(false);
   const selectedPlugin = ref(null);
-  const clearConfig = ref(false);
-  const clearData = ref(false);
-  const forceClean = ref(false);
-  const actionLoading = ref(false);
+  const onlinePluginInfo = ref(null);
+const clearConfig = ref(false);
+const clearData = ref(false);
+const forceClean = ref(false);
+const actionLoading = ref(false);
+const showFullRepoUrl = ref(false);
   
   // 快速重载相关
-  const quickReloadLoading = ref(false);
-  const lastReloadPlugins = ref([]);
-  
-  // 插件数据
-  const plugins = ref([]);
-  const reloadingPlugins = ref(new Set());
+const quickReloadLoading = ref(false);
+const lastReloadPlugins = ref([]);
+const selectedQuickReloadIds = ref(new Set());
+
+// 插件数据
+const plugins = ref([]);
+const reloadingPlugins = ref(new Set());
+const reinstallingPlugins = ref(new Set());
   
   // 插件ID
   const pluginId = "PluginManagerVue";
@@ -389,32 +543,47 @@
   });
   
   const statusStats = computed(() => [
-    {
-      icon: 'mdi-package-variant',
-      value: plugins.value.length,
-      label: '总数'
-    },
-    {
-      icon: 'mdi-check-circle',
-      value: plugins.value.filter(p => p.installed).length,
-      label: '已装'
-    },
-    {
-      icon: 'mdi-play-circle',
-      value: plugins.value.filter(p => p.running).length,
-      label: '运行'
-    },
-    {
-      icon: 'mdi-cloud',
-      value: plugins.value.filter(p => p.type !== 'local').length,
-      label: '在线'
-    },
-    {
-      icon: 'mdi-folder',
-      value: plugins.value.filter(p => p.type === 'local').length,
-      label: '本地'
-    }
-  ]);
+  {
+    icon: 'mdi-package-variant',
+    value: plugins.value.length,
+    label: '总数'
+  },
+  {
+    icon: 'mdi-check-circle',
+    value: plugins.value.filter(p => p.installed).length,
+    label: '已装'
+  },
+  {
+    icon: 'mdi-play-circle',
+    value: plugins.value.filter(p => p.running).length,
+    label: '运行'
+  },
+  {
+    icon: 'mdi-cloud',
+    value: plugins.value.filter(p => p.type !== 'local').length,
+    label: '在线'
+  },
+  {
+    icon: 'mdi-folder',
+    value: plugins.value.filter(p => p.type === 'local').length,
+    label: '本地'
+  }
+]);
+
+const allOptionsSelected = computed(() => {
+  if (selectedPlugin.value?.installed) {
+    // 已安装插件：配置 + 数据
+    return clearConfig.value && clearData.value;
+  } else {
+    // 未安装插件：配置 + 数据 + 强制清理
+    return clearConfig.value && clearData.value && forceClean.value;
+  }
+});
+
+const allQuickReloadSelected = computed(() => {
+  const availablePlugins = lastReloadPlugins.value.slice(0, 6);
+  return availablePlugins.length > 0 && availablePlugins.every(plugin => selectedQuickReloadIds.value.has(plugin.id));
+});
   
   // 方法
   function getStatusColor(plugin) {
@@ -481,34 +650,36 @@ function getStatusClass(plugin) {
   }
   
   async function reloadPlugin(plugin) {
-    if (reloadingPlugins.value.has(plugin.id)) {
-      return;
-    }
-  
-    reloadingPlugins.value.add(plugin.id);
-  
-    try {
-      const response = await props.api.post(`plugin/${pluginId}/reload`, {
-        plugin_id: plugin.id
-      });
-  
-      if (response?.success) {
-        showMessage(`${plugin.name} 重载成功`, 'success');
-        
-        // 延迟刷新数据
-        setTimeout(() => {
-          refreshPlugins();
-        }, 1000);
-      } else {
-        throw new Error(response?.message || '重载失败');
-      }
-    } catch (err) {
-      console.error('重载插件失败:', err);
-      showMessage(`${plugin.name} 重载失败: ${err.message}`, 'error');
-    } finally {
-      reloadingPlugins.value.delete(plugin.id);
-    }
+  if (reloadingPlugins.value.has(plugin.id)) {
+    return;
   }
+
+  reloadingPlugins.value.add(plugin.id);
+
+  try {
+    const response = await props.api.post(`plugin/${pluginId}/reload`, {
+      plugin_id: plugin.id
+    });
+
+    if (response?.success) {
+      showMessage(`${plugin.name} 重载成功`, 'success');
+      
+      // 延迟刷新数据
+      setTimeout(() => {
+        refreshPlugins();
+      }, 1000);
+    } else {
+      throw new Error(response?.message || '重载失败');
+    }
+  } catch (err) {
+    console.error('重载插件失败:', err);
+    showMessage(`${plugin.name} 重载失败: ${err.message}`, 'error');
+  } finally {
+    reloadingPlugins.value.delete(plugin.id);
+  }
+}
+
+
   
   async function reloadAllRecent() {
     if (lastReloadPlugins.value.length === 0) return;
@@ -548,12 +719,229 @@ function getStatusClass(plugin) {
   }
   
   function showActionDialog(plugin) {
-    selectedPlugin.value = plugin;
+  selectedPlugin.value = plugin;
+  clearConfig.value = false;
+  clearData.value = false;
+  forceClean.value = false;
+  actionDialog.value = true;
+}
+
+async function showReinstallDialog(plugin) {
+  selectedPlugin.value = plugin;
+  onlinePluginInfo.value = null;
+  showFullRepoUrl.value = false; // 重置为显示简洁名称
+  reinstallDialog.value = true;
+  
+  // 获取在线插件信息
+  await fetchOnlinePluginInfo(plugin.id);
+}
+
+async function fetchOnlinePluginInfo(targetPluginId) {
+  try {
+    // 调用插件管理器的API获取在线插件信息
+    const response = await props.api.get(`plugin/PluginManagerVue/online_info/${targetPluginId}`);
+    
+    if (response?.success && response.data) {
+      onlinePluginInfo.value = response.data;
+      console.log('找到在线插件信息:', response.data);
+    } else {
+      console.log('未找到在线插件:', targetPluginId, response?.message);
+    }
+  } catch (err) {
+    console.error('获取在线插件信息失败:', err);
+  }
+}
+
+function getRepoDisplayName(repoUrl) {
+  if (!repoUrl) return '未知仓库';
+  if (repoUrl === 'local') return '本地插件';
+  
+  // 如果显示完整URL，直接返回
+  if (showFullRepoUrl.value) {
+    return repoUrl;
+  }
+  
+  // 默认显示用户名的仓库
+  try {
+    if (repoUrl.includes('github.com')) {
+      const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+      if (match) {
+        return `${match[1]}的仓库`;
+      }
+    }
+    
+    if (repoUrl.includes('raw.githubusercontent.com')) {
+      const match = repoUrl.match(/raw\.githubusercontent\.com\/([^\/]+)\/([^\/]+)/);
+      if (match) {
+        return `${match[1]}的仓库`;
+      }
+    }
+    
+    // 其他情况返回域名
+    const url = new URL(repoUrl);
+    return url.hostname;
+  } catch (e) {
+    return repoUrl;
+  }
+}
+
+function toggleRepoUrlDisplay() {
+  showFullRepoUrl.value = !showFullRepoUrl.value;
+}
+
+function getPluginIconPath(iconPath) {
+  if (!iconPath) return '';
+  
+  // 如果是网络图片则使用代理
+  if (iconPath.startsWith('http')) {
+    return `/api/v1/system/img/1?imgurl=${encodeURIComponent(iconPath)}`;
+  }
+  
+  // 本地图片使用相对路径
+  return `./plugin_icon/${iconPath}`;
+}
+
+function getUpdateStatusColor() {
+  if (!onlinePluginInfo.value) return 'grey';
+  
+  const currentVersion = selectedPlugin.value?.version;
+  const latestVersion = onlinePluginInfo.value?.plugin_version;
+  
+  if (!currentVersion || !latestVersion) return 'grey';
+  
+  // 简单的版本比较
+  if (currentVersion !== latestVersion) {
+    return 'success';
+  }
+  return 'grey';
+}
+
+function getUpdateStatusText() {
+  if (!onlinePluginInfo.value) return '检查中...';
+  
+  const currentVersion = selectedPlugin.value?.version;
+  const latestVersion = onlinePluginInfo.value?.plugin_version;
+  
+  if (!currentVersion || !latestVersion) return '版本未知';
+  
+  if (currentVersion !== latestVersion) {
+    return '有新版本';
+  }
+  return '已是最新';
+}
+
+async function confirmReinstall() {
+  if (!selectedPlugin.value) return;
+  
+  actionLoading.value = true;
+  
+  try {
+    const response = await props.api.post(`plugin/${pluginId}/reinstall`, {
+      plugin_id: selectedPlugin.value.id
+    });
+
+    if (response?.success) {
+      showMessage(`${selectedPlugin.value.name} 重装成功`, 'success');
+      
+      // 延迟刷新数据
+      setTimeout(() => {
+        refreshPlugins();
+      }, 1500);
+    } else {
+      throw new Error(response?.message || '重装失败');
+    }
+  } catch (err) {
+    console.error('重装插件失败:', err);
+    showMessage(`${selectedPlugin.value.name} 重装失败: ${err.message}`, 'error');
+  } finally {
+    actionLoading.value = false;
+    reinstallDialog.value = false;
+    selectedPlugin.value = null;
+  }
+}
+
+function toggleAllOptions() {
+  if (allOptionsSelected.value) {
+    // 取消全选
     clearConfig.value = false;
     clearData.value = false;
     forceClean.value = false;
-    actionDialog.value = true;
+  } else {
+    // 全选
+    clearConfig.value = true;
+    clearData.value = true;
+    if (!selectedPlugin.value?.installed) {
+      forceClean.value = true;
+    }
   }
+}
+
+function toggleAllQuickReload() {
+  const availablePlugins = lastReloadPlugins.value.slice(0, 6);
+  if (allQuickReloadSelected.value) {
+    // 取消全选
+    selectedQuickReloadIds.value.clear();
+  } else {
+    // 全选
+    selectedQuickReloadIds.value = new Set(availablePlugins.map(p => p.id));
+  }
+  // 触发响应式更新
+  selectedQuickReloadIds.value = new Set(selectedQuickReloadIds.value);
+}
+
+function toggleQuickReloadSelection(pluginId) {
+  if (selectedQuickReloadIds.value.has(pluginId)) {
+    selectedQuickReloadIds.value.delete(pluginId);
+  } else {
+    selectedQuickReloadIds.value.add(pluginId);
+  }
+  // 触发响应式更新
+  selectedQuickReloadIds.value = new Set(selectedQuickReloadIds.value);
+}
+
+async function reloadSelectedPlugins() {
+  if (selectedQuickReloadIds.value.size === 0) return;
+  
+  quickReloadLoading.value = true;
+  const selectedIds = Array.from(selectedQuickReloadIds.value);
+  let successCount = 0;
+  let failCount = 0;
+  
+  for (const targetPluginId of selectedIds) {
+    try {
+      const response = await props.api.post(`plugin/${pluginId}/reload`, {
+        plugin_id: targetPluginId
+      });
+      
+      if (response?.success) {
+        successCount++;
+      } else {
+        failCount++;
+        console.error(`重载插件 ${targetPluginId} 失败:`, response?.message || '未知错误');
+      }
+    } catch (err) {
+      console.error(`重载插件 ${targetPluginId} 失败:`, err);
+      failCount++;
+    }
+  }
+  
+  quickReloadLoading.value = false;
+  
+  if (failCount === 0) {
+    showMessage(`成功重载 ${successCount} 个插件`, 'success');
+  } else {
+    showMessage(`重载完成：成功 ${successCount} 个，失败 ${failCount} 个`, 'warning');
+  }
+  
+  // 清空选择
+  selectedQuickReloadIds.value.clear();
+  selectedQuickReloadIds.value = new Set();
+  
+  // 延迟刷新数据
+  setTimeout(() => {
+    refreshPlugins();
+  }, 1000);
+}
   
   async function confirmAction() {
     if (!selectedPlugin.value) return;
@@ -681,24 +1069,56 @@ function getStatusClass(plugin) {
   }
   
   .quick-reload-menu {
-    background: rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(var(--v-theme-surface), 0.9) !important;
   }
   
-  .quick-reload-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 4px;
-    max-height: 120px;
-    overflow-y: auto;
-  }
-  
-  .quick-reload-item {
-    font-size: 0.7rem;
-    min-width: 0;
-    justify-content: flex-start;
-  }
+  .quick-reload-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.quick-reload-list {
+  max-height: 150px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+}
+
+.quick-reload-item-wrapper {
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-bottom: 4px;
+}
+
+.quick-reload-item-wrapper:hover {
+  background: rgba(var(--v-theme-surface-variant), 0.1);
+}
+
+.quick-reload-item-wrapper.selected {
+  background: rgba(var(--v-theme-primary), 0.1);
+}
+
+.quick-reload-checkbox {
+  margin-right: 8px;
+}
+
+.quick-reload-name {
+  font-size: 0.75rem;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-reload-actions {
+  display: flex;
+  gap: 8px;
+}
   
   /* 状态监控面板 */
   .status-grid {
@@ -1024,6 +1444,12 @@ function getStatusClass(plugin) {
   background: rgba(33, 150, 243, 0.05);
 }
 
+.reinstall-action:hover {
+  border-color: rgba(156, 39, 176, 0.5);
+  box-shadow: 0 0 12px rgba(156, 39, 176, 0.3);
+  background: rgba(156, 39, 176, 0.05);
+}
+
 .danger-action:hover {
   border-color: rgba(244, 67, 54, 0.5);
   box-shadow: 0 0 12px rgba(244, 67, 54, 0.3);
@@ -1031,23 +1457,27 @@ function getStatusClass(plugin) {
 }
   
   .module-overlay {
-    position: absolute;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(5px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 12px;
-  }
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(5px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+}
+
+.overlay-text {
+  margin-top: 8px;
+  font-size: 0.8rem;
+  opacity: 0.9;
+  font-weight: 500;
+}
   
   /* 对话框 */
-  .action-dialog {
-    background: rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 16px;
-    padding: 24px;
+  .dialog-card {
+    background: rgba(var(--v-theme-surface), 0.9) !important;
   }
   
   .dialog-header {
@@ -1080,22 +1510,80 @@ function getStatusClass(plugin) {
     margin-top: 4px;
   }
   
-  .warning-alert {
-    background: rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(10px);
+  .repo-info {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 16px;
+  }
+  
+  .info-section {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    background: rgba(var(--v-theme-surface-variant), 0.1);
+    border-radius: 8px;
+  }
+  
+  .info-label {
+    display: flex;
+    align-items: center;
+    font-size: 0.9rem;
+    font-weight: 500;
+  }
+  
+  .info-value {
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+  
+  .repo-clickable {
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border-radius: 4px;
+    padding: 4px 8px;
+    margin: -4px -8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  
+  .repo-clickable:hover {
+    background: rgba(var(--v-theme-primary), 0.1);
+    color: rgb(var(--v-theme-primary));
   }
   
   .option-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  
-  .option-item {
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 8px;
-    padding: 8px;
-  }
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+  .option-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  background: rgba(var(--v-theme-surface-variant), 0.1);
+  border-radius: 8px;
+}
+
+.option-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.select-all-btn {
+  font-size: 0.7rem;
+}
+
+.option-item {
+  background: rgba(var(--v-theme-surface-variant), 0.05);
+  border-radius: 8px;
+  padding: 8px;
+}
   
   .dialog-actions {
     display: flex;
