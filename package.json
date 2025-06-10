@@ -62,7 +62,7 @@
     "name": "NodeSeek论坛签到",
     "description": "懒羊羊定制：自动完成NodeSeek论坛每日签到，支持随机奖励和自动重试功能",
     "labels": "签到,NodeSeek,论坛",
-    "version": "1.2.0",
+    "version": "1.1.0",
     "icon": "https://raw.githubusercontent.com/madrays/MoviePilot-Plugins/main/icons/nodeseeksign.png",
     "author": "madrays",
     "level": 2,
@@ -115,12 +115,13 @@
     "name": "日志清理VUE",
     "description": "定时清理插件产生的日志",
     "labels": "日志,清理,工具",
-    "version": "2.0",
+    "version": "2.1",
     "icon": "https://raw.githubusercontent.com/madrays/MoviePilot-Plugins/main/icons/clean.png",
     "author": "madrays",
     "level": 1,
     "v2": true,
     "history": {
+      "v2.1": "优化已删除插件的日志显示逻辑，提升可用性",
       "v2.0": "联邦插件重制版，仅支持MPv2.4.5版本以上，低版本请勿更新，更新后请重置插件",
       "v1.0": "首次发布重制版，修复插件列表错误，增加页面和通知"
     }
@@ -129,7 +130,7 @@
     "name": "垃圾文件清理",
     "description": "自动清理监控目录内的垃圾文件",
     "labels": "清理,垃圾文件,监控",
-    "version": "1.1",
+    "version": "1.0",
     "icon": "https://raw.githubusercontent.com/madrays/MoviePilot-Plugins/main/icons/clean1.png",
     "author": "madrays",
     "level": 1,
@@ -137,6 +138,33 @@
     "history": {
       "v1.1": "优化性能及体验",
       "v1.0": "首次发布"
+    }
+  },
+  "P1115StrmHelper": {
+    "name": "VUE-115网盘STRM助手",
+    "description": "测试版仅供测试",
+    "labels": "STRM,115,网盘",
+    "version": "100000.1.1",
+    "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Frontend/refs/heads/v2/src/assets/images/misc/u115.png",
+    "author": "VUE测试版",
+    "level": 1,
+    "v2": true,
+    "history": {
+      "v100000.1.1": "集成MediaWarp"
+    }
+  },
+  "PluginManagerVue": {
+    "name": "插件管理中心",
+    "description": "集成插件热重载、彻底卸载、重装等功能，支持本地和在线插件管理。",
+    "labels": "插件,管理,工具",
+    "version": "1.0.3",
+    "icon": "https://raw.githubusercontent.com/madrays/MoviePilot-Plugins/main/icons/manager.png",
+    "author": "madrays",
+    "level": 1,
+    "v2": true,
+    "history": {
+      "v1.0.3": "优化已删除插件显示逻辑，提升可用性",
+      "v1.0.2": "新增重装功能，修复图标路径"
     }
   }
 
